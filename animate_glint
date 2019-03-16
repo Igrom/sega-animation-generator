@@ -1,0 +1,154 @@
+#! /bin/bash
+#
+# animate-glint - spoof the Sega logo glint on an image.
+# Produces an animation in the form of separate .png frames.
+# Created at: 2019-03-14
+
+# ---------- Helpers ----------
+
+function get_image_width () {
+  local image="$1"
+  identify "$image" | cut -d ' ' -f 3 | cut -d 'x' -f 1
+}
+
+function get_image_height () {
+  local image="$1"
+  identify "$image" | cut -d ' ' -f 3 | cut -d 'x' -f 2
+}
+
+function get_last_frame_index () {
+  local index=$(find . -maxdepth 1 -type f -name 'frame*.png' | sort -V | tail -1 | sed 's/[^0-9]//g')
+	if [ -z "$index" ]
+	then
+		index=0
+	fi
+
+	echo $index
+}
+
+
+# ---------- Image generation logic ----------
+
+function generate_mask () {
+  local logo="$1"
+  local output="$2"
+
+  local logo_height=$(get_image_height "$logo")
+
+  local bar_opacities=(0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2)
+  local bar_width=$(bc -l <<< "$logo_height / 7")
+  local mask_width=$(bc -l <<< "$bar_width * ${#bar_opacities[@]}")
+
+  local x_coords[0]=0
+  for bar_index_one_based in $(seq ${#bar_opacities[@]})
+  do
+    x_coords[$(($bar_index_one_based))]=$(bc -l <<< "$bar_index_one_based * $bar_width")
+  done
+
+  local draw_command
+  for bar_index_one_based in $(seq ${#bar_opacities[@]})
+  do
+    local bar_index_zero_based=$((bar_index_one_based - 1))
+    draw_command="$draw_command -draw \"fill-opacity ${bar_opacities[$bar_index_zero_based]} rectangle ${x_coords[$bar_index_zero_based]},0 ${x_coords[$bar_index_one_based]},1\""
+  done
+
+  eval "convert -size $mask_width xc:black -alpha transparent -fill white -stroke none -strokewidth 0 \
+    $draw_command \
+    -resize "$mask_width"x"$logo_height"! \"$output\""
+}
+
+function generate_animation_glint_frame () {
+  local background="$1"
+  local mask="$2"
+  local spacing=$3
+  local local_frame_index=$4
+  local global_frame_index=$5
+
+  convert "$background" "$mask" \
+    -gravity West -geometry +$(bc -l <<< "$local_frame_index * $spacing")+0 \
+    -compose Dst_In -composite \
+    frame$global_frame_index.png
+}
+
+function generate_animation_glint () {
+  local background="$1"
+  local mask="$2"
+  local frame_count="$3"
+
+  local logo_width="$(get_image_width "$logo")"
+  local mask_width="$(get_image_width "$mask")"
+
+  local spacing=$(bc -l <<< "($logo_width - $mask_width) / $frame_count")
+
+  local initial_global_frame_index=$(get_last_frame_index)
+  for frame_index in $(seq $frame_count)
+  do
+    generate_animation_glint_frame "$background" "$mask" $spacing $frame_index $(($initial_global_frame_index + $frame_index))
+  done
+}
+
+function generate_animation_fadein_frame () {
+  local background="$1"
+  local opacity="$2"
+  local global_frame_index=$3
+  local local_frame_index=$4
+
+	convert "$background" \
+		-channel A -evaluate multiply $opacity +channel \
+		frame$global_frame_index.png
+}
+
+function generate_animation_fadein () {
+  local background="$1"
+  local frame_count=$2
+
+  local opacities=[0]=0
+  for frame_index in $(seq $frame_count)
+  do
+    opacities[$(($frame_index - 1))]=$(bc -l <<< "0.2 + $frame_index * (0.8 / $frame_count)")
+  done
+
+  
+  local initial_global_frame_index=$(get_last_frame_index)
+  for frame_index in $(seq $frame_count)
+  do
+    generate_animation_fadein_frame "$background" "${opacities[$((frame_index - 1))]}" $(($initial_global_frame_index + $frame_index))
+  done
+}
+
+function generate_animation() {
+  local background="$1"
+  local mask="$2"
+  local frame_count_glint="$3"
+  local frame_count_fadein="$4"
+
+  generate_animation_glint "$background" "$mask" "$frame_count_glint"
+  generate_animation_fadein "$background" "$frame_count_fadein"
+}
+
+
+# ---------- CLI tool-specific code ----------
+
+function print_help_and_exit () {
+  echo Usage: animate-glint logo frame_count_glint frame_count_fadein >&2
+  echo Example: animate-glint "logo.png" 50 25 >&2
+  exit 1
+}
+
+
+function main () {
+  local logo="$1"
+  local frame_count_glint=$2
+  local frame_count_fadein=$3
+
+  local mask="mask.png"
+  if [ -z "$logo" -o -z "$frame_count_glint" -o -z "$frame_count_fadein" ]
+  then
+    print_help_and_exit
+  fi
+
+  generate_mask "$logo" "$mask"
+  generate_animation "$logo" "$mask" "$frame_count_glint" "$frame_count_fadein"
+}
+
+main "$@"

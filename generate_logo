@@ -1,0 +1,46 @@
+#! /bin/bash
+#
+# generate_logo - create a transparent, parameterized logo
+# Created at: 2019-03-14
+
+# ---------- Image generation logic ----------
+
+function generate_logo () {
+  local text="$1"
+  local font="$2"
+  local point_size=$3
+  local color=$4
+  local output="$5"
+
+  convert -background none -fill $color \
+    -font "$font" -pointsize $point_size label:"$text" \
+    "$output"
+}
+
+
+# ---------- CLI tool-specific code ----------
+
+function print_help_and_exit () {
+  echo Usage: generate_logo text font point_size >&2
+  echo Example: generate_logo "sega" "./SEGA.TTF" 144 >&2
+  exit 1
+}
+
+
+function main () {
+  local text="$1"
+  local font="$2"
+  local point_size=$3
+  local color="$4"
+
+  local logo="logo.png"
+
+  if [ -z "$text" -o -z "$font" -o -z "$point_size" -o -z "$color" ]
+  then
+    print_help_and_exit
+  fi
+
+  generate_logo "$text" "$font" $point_size $color "$logo"
+}
+
+main "$@"
